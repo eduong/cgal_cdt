@@ -3,7 +3,11 @@
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Triangulation_2.h>
+#include <CGAL/Triangulation_hierarchy_2.h>
 #include <CGAL/Segment_2.h>
+#include <CGAL/point_generators_2.h>
+#include <CGAL/algorithm.h>
+#include <cassert>
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/properties.hpp>
@@ -17,7 +21,14 @@ typedef K::Point_2 CGALPoint;
 typedef K::Segment_2 CGALSegment;
 typedef K::Intersect_2 CGALIntersect;
 
-typedef CGAL::Triangulation_2<K> Triangulation;
+typedef CGAL::Triangulation_vertex_base_2<K>				Vbb;
+typedef CGAL::Triangulation_hierarchy_vertex_base_2<Vbb>	Vb;
+typedef CGAL::Triangulation_face_base_2<K>					Fb;
+typedef CGAL::Triangulation_data_structure_2<Vb, Fb>		Tds;
+typedef CGAL::Triangulation_2<K, Tds>						T2;
+typedef CGAL::Triangulation_hierarchy_2<T2>					Triangulation;
+
+//typedef CGAL::Triangulation_2<K> Triangulation;
 typedef Triangulation::Finite_faces_iterator FiniteFaceIter;
 typedef Triangulation::Finite_edges_iterator FiniteEdgeIter;
 typedef Triangulation::Finite_vertices_iterator FiniteVertexIter;
@@ -29,6 +40,8 @@ typedef Triangulation::Face TriFace;
 typedef Triangulation::Edge TriEdge;
 typedef Triangulation::Vertex TriVertex;
 typedef Triangulation::Point TriPoint;
+
+typedef CGAL::Creator_uniform_2<double, TriPoint> Creator;
 
 bool operator==(TriEdge const& e1, TriEdge const& e2)
 {
