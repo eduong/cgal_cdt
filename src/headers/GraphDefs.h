@@ -20,6 +20,7 @@ typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
 typedef K::Point_2 CGALPoint;
 typedef K::Segment_2 CGALSegment;
 typedef K::Intersect_2 CGALIntersect;
+typedef K::Circle_2 CGALCircle;
 
 typedef CGAL::Triangulation_vertex_base_2<K>				Vbb;
 typedef CGAL::Triangulation_hierarchy_vertex_base_2<Vbb>	Vb;
