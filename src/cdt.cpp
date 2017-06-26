@@ -7,7 +7,9 @@
 
 #include "GraphDefs.h"
 #include "timer.h"
-#include "verify.h"
+#include "GraphUtil.h"
+#include "GraphParse.h"
+#include "GraphGen.h"
 
 #include <fstream>
 #include <string>
@@ -16,24 +18,28 @@
 
 const int vertexIdx = 0; // Arbitrary index id
 
-TriVertexHandle OppositeOfEdge(TriVertexHandle ev0, TriVertexHandle ev1, TriFaceHandle f) {
-	TriVertexHandle v0 = f->vertex(vertexIdx);
-	if (v0 != ev0 && v0 != ev1) {
-		return v0;
+void printGraph(const char* title, VertexVector* vertices, EdgeVector* edges, bool printVertices = false) {
+	std::cout << std::endl << "=== " << title << std::endl;
+
+	if (printVertices) {
+		// Iterate through the vertices and print them out
+		for (int i = 0; i < vertices->size(); i++) {
+			CGALPoint* v = (*vertices)[i];
+			std::cout << "index: " << i << " (" << v->x() << ", " << v->y() << ")" << std::endl;
+		}
 	}
 
-	TriVertexHandle v1 = f->vertex(f->cw(vertexIdx));
-	if (v1 != ev0 && v1 != ev1) {
-		return v1;
+	// Iterate through the edges and print them out
+	std::cout << std::endl << "Edges: " << std::endl;
+	for (int i = 0; i < edges->size(); i++) {
+		SimpleEdge* e = (*edges)[i];
+		CGALPoint* src = (*vertices)[e->u];
+		CGALPoint* tar = (*vertices)[e->v];
+		//std::cout << edgeWeightMap->at(e).weight << " (" << (*g)[src].pt << ") (" << (*g)[tar].pt << ")" << std::endl;
+		std::cout << e->weight << " (" << (*src) << ") (" << (*tar) << ")" << std::endl;
 	}
 
-	TriVertexHandle v2 = f->vertex(f->ccw(vertexIdx));
-	if (v2 != ev0 && v2 != ev1) {
-		return v2;
-	}
-
-	assert(false); // Unreachable
-	return NULL;
+	std::cout << std::endl;
 }
 
 bool IsLocallyDelaunay(CGALPoint* p, CGALPoint* q, CGALPoint* r, CGALPoint* t) {
@@ -48,24 +54,83 @@ bool IsLocallyDelaunay(CGALPoint* p, CGALPoint* q, CGALPoint* r, CGALPoint* t) {
 		|| side == CGAL::Bounded_side::ON_BOUNDARY;
 }
 
-int main(int argc, char* argv[]) {
-	std::cout << "insertion of random points" << std::endl;
-	Triangulation* t = new Triangulation();
-	CGAL::Random_points_on_circle_2<TriPoint, Creator> graph(100.);
-	CGAL::cpp11::copy_n(graph, 100000, std::back_inserter(*t));
-	//verbose mode of is_valid ; shows the number of vertices at each  level
-	std::cout << "The number of vertices at successive levels" << std::endl;
-	assert(t->is_valid(true));
+CTplus* computeCt(VertexVector* vertices, EdgeVector* edges, boost::unordered_map<TriVertexHandle, VertexIndex>** handlesToIndex) {
+	CTplus* t = new CTplus();
 
-	boost::unordered_set<TriEdge>* s = new boost::unordered_set<TriEdge>();
+	(*handlesToIndex) = new boost::unordered_map<TriVertexHandle, VertexIndex>();
+	boost::unordered_map<VertexIndex, TriVertexHandle> vertexHandles;
+	for (int i = 0; i < vertices->size(); i++) {
+		CGALPoint* pt = (*vertices)[i];
+		TriVertexHandle vHandle = t->insert(*pt);
+		vertexHandles.emplace(i, vHandle);
+		(*handlesToIndex)->emplace(vHandle, i);
+	}
 
-	TriVertexHandle infiniteVertex = t->infinite_vertex();
-	TriFaceHandle infiniteFace = t->infinite_face();
+	// Insert constraint edges
+	for (int i = 0; i < edges->size(); i++) {
+		SimpleEdge* edge = (*edges)[i];
+		VertexIndex u = edge->u;
+		VertexIndex v = edge->v;
+		TriVertexHandle uH = vertexHandles[u];
+		TriVertexHandle vH = vertexHandles[v];
+		t->insert_constraint(uH, vH);
+	}
+
+	assert(t->is_valid());
+
+	return t;
+}
+
+// Given 3 colinear points, if the 2 furthest points are constrained, how is this delaunay triangulated?
+// It seems the outcome is implementation dependent. CGAL will split the constraint into 2 edges.
+// Other implementations might allow for overlapping, collinear edges. Either way, the current plan
+// is to assume that an input forest, F, with collinear edges will be replaced by smaller constraint edges.
+EdgeVector* newConstraintSetFromCt(CT* ct, VertexVector* originalVertices) {
+	EdgeVector* newEdgeVector = new EdgeVector();
+
+	boost::unordered_map<CGALPoint, VertexIndex> vertexIndex;
+	for (int i = 0; i < originalVertices->size(); i++) {
+		vertexIndex[*(*originalVertices)[i]] = i;
+	}
+
+	// Add edges to graph
+	for (CT::Edge_iterator eit = ct->edges_begin(); eit != ct->edges_end(); ++eit) {
+		CT::Edge cgal_e = *eit;
+
+		if (ct->is_constrained(cgal_e)) {
+			// Assumes point coord are unique
+			CGALSegment segement = ct->segment(cgal_e);
+			CGALPoint cgal_u = segement.point(0);
+			CGALPoint cgal_v = segement.point(1);
+			VertexIndex u = vertexIndex[cgal_u];
+			VertexIndex v = vertexIndex[cgal_v];
+
+			SimpleEdge* edge = new SimpleEdge(u, v, 0);
+			newEdgeVector->push_back(edge);
+		}
+	}
+	return newEdgeVector;
+}
+
+void computeCDT(
+	VertexVector* vertices,
+	EdgeVector* edges,
+	EdgeVector** NewEdges,
+	EdgeVector** S_Edges) {
+	
+	boost::unordered_map<TriVertexHandle, VertexIndex>* handlesToIndex;
+	CTplus* ct = computeCt(vertices, edges, &handlesToIndex);
+	(*NewEdges) = newConstraintSetFromCt(ct, vertices);
+
+	boost::unordered_set<TriEdge>* S = new boost::unordered_set<TriEdge>();
+
+	TriVertexHandle infiniteVertex = ct->infinite_vertex();
+	TriFaceHandle infiniteFace = ct->infinite_face();
 	int edgeCount = 0;
 
 	boost::chrono::high_resolution_clock::time_point startTotal = boost::chrono::high_resolution_clock::now();
 
-	for (FiniteEdgeIter iter = t->finite_edges_begin(); iter != t->finite_edges_end(); ++iter) {
+	for (FiniteEdgeIter iter = ct->finite_edges_begin(); iter != ct->finite_edges_end(); ++iter) {
 		edgeCount++;
 
 		// typedef std::pair<Face_handle, int> Edge;
@@ -100,20 +165,128 @@ int main(int argc, char* argv[]) {
 				CGALPoint r = rH->point();
 				CGALPoint t = opp0->point();
 				if (!IsLocallyDelaunay(&p, &q, &r, &t)) {
-					s->emplace(e);
+					S->emplace(e);
 				}
 			}
 		}
 	}
 
+	(*S_Edges) = new EdgeVector();
+	for (boost::unordered_set<TriEdge>::iterator iter = S->begin(); iter != S->end(); ++iter) {
+		TriEdge e = *iter;
+		int eIndex = e.second;
+		TriFaceHandle f0 = e.first;
+		TriVertexHandle e0 = f0->vertex(f0->cw(eIndex));
+		TriVertexHandle e1 = f0->vertex(f0->ccw(eIndex));
+
+		VertexIndex u = (*handlesToIndex)[e0];
+		VertexIndex v = (*handlesToIndex)[e1];
+
+		(*S_Edges)->push_back(new SimpleEdge(u, v, 0));
+	}
+
 	boost::chrono::high_resolution_clock::time_point endTotal = boost::chrono::high_resolution_clock::now();
 	boost::chrono::milliseconds total = (boost::chrono::duration_cast<boost::chrono::milliseconds>(endTotal - startTotal));
-	printDuration("Total duration", total);
+	printDuration("computeCDT duration", total);
 
-	std::cout << "Edges in T: " << edgeCount << " Edges in S: " << s->size() << " Ratio: " << (double)((double)s->size() / (double)edgeCount) << std::endl;
+	delete S;
+	delete ct;
+	delete handlesToIndex;
+}
 
-	delete s;
-	delete t;
+EdgeVector* intersectInputSetWithConstraintSet(EdgeVector* inputSet, EdgeVector* constraintSet) {
+	boost::unordered_set<SimpleEdge>* NewEdges_Hashset = new boost::unordered_set<SimpleEdge>();
+	for (int i = 0; i < inputSet->size(); i++) {
+		SimpleEdge* e = (*inputSet)[i];
+		NewEdges_Hashset->emplace((*e));
+	}
+
+	EdgeVector* intersect = new EdgeVector();
+	for (int i = 0; i < constraintSet->size(); i++) {
+		SimpleEdge* se = (*constraintSet)[i];
+		if (NewEdges_Hashset->count(*se) > 0) {
+			intersect->push_back(new SimpleEdge(se->u, se->v, se->weight));
+		}
+	}
+
+	return intersect;
+}
+
+bool containsEdge(boost::unordered_set<SimpleEdge>* edgeSet, SimpleEdge* edge) {
+	SimpleEdge se(edge->u, edge->v, 0);
+	return edgeSet->count(se) > 0;
+}
+
+// True if A a subgraph of B
+bool isSubgraph(VertexVector* vertices, EdgeVector* a, EdgeVector* b) {
+	boost::unordered_set<SimpleEdge>* bEdgeSet = createSimpleEdgeSet(b);
+
+	// Iterate through the edges
+	for (int i = 0; i < a->size(); i++) {
+		SimpleEdge* edge = (*a)[i];
+		if (!containsEdge(bEdgeSet, edge)) {
+			CGALPoint* u = (*vertices)[edge->u];
+			CGALPoint* v = (*vertices)[edge->v];
+			EdgeWeight weight = CGAL::squared_distance(*u, *v);
+			std::cout << "b contains edge not in a: " << weight << " (" << *u << ") (" << *v << ")" << std::endl;
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool isCdtSubgraph(VertexVector* vertices, EdgeVector* edgesF, EdgeVector* edgesS) {
+	EdgeVector* newEdgesS;
+	EdgeVector* cdtS;
+	computeCDT(vertices, edgesS, &newEdgesS, &cdtS);
+	bool res = isSubgraph(vertices, edgesF, cdtS);
+
+	delete cdtS;
+	delete newEdgesS;
+
+	return res;
+}
+
+int main(int argc, char* argv[]) {
+	const char* vertFile = (argc > 2) ? argv[1] : NULL;
+	const char* edgeFile = (argc > 2) ? argv[2] : NULL;
+
+	VertexVector* vertices = NULL;
+	EdgeVector* edges = NULL;
+
+	if (vertFile == NULL || edgeFile == NULL) {
+		// Random graph
+		createRandomPlaneForest(10, 10, 10, &vertices, &edges);
+	}
+	else {
+		// Load graph from file
+		parseGraph(vertFile, edgeFile, &vertices, &edges);
+	}
+
+	// Compute CT(V, E)
+	EdgeVector* NewEdges;
+	EdgeVector* cdtS;
+	computeCDT(vertices, edges, &NewEdges, &cdtS);
+	EdgeVector* S = intersectInputSetWithConstraintSet(NewEdges, cdtS);
+	std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
+
+	// Validatation:
+	// S ⊆ E
+	if (!isSubgraph(vertices, S, NewEdges)) {
+		std::cout << "Error: isSubgraph is false" << std::endl;
+	}
+
+	// F ⊆ CDT(V, S)
+	if (!isCdtSubgraph(vertices, NewEdges, S)) {
+		std::cout << "Error: isCdtSubgraph is false" << std::endl;
+	}
+
+	deleteEdgeVector(S);
+	deleteEdgeVector(cdtS);
+	deleteEdgeVector(NewEdges);
+	deleteEdgeVector(edges);
+	deleteVerticesVector(vertices);
 
 	return 0;
 }

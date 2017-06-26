@@ -2,8 +2,7 @@
 #define GRAPH_DEFS_H_
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/Triangulation_2.h>
-#include <CGAL/Triangulation_hierarchy_2.h>
+#include <CGAL/Constrained_triangulation_plus_2.h>
 #include <CGAL/Segment_2.h>
 #include <CGAL/point_generators_2.h>
 #include <CGAL/algorithm.h>
@@ -22,25 +21,22 @@ typedef K::Segment_2 CGALSegment;
 typedef K::Intersect_2 CGALIntersect;
 typedef K::Circle_2 CGALCircle;
 
-typedef CGAL::Triangulation_vertex_base_2<K>				Vbb;
-typedef CGAL::Triangulation_hierarchy_vertex_base_2<Vbb>	Vb;
-typedef CGAL::Triangulation_face_base_2<K>					Fb;
-typedef CGAL::Triangulation_data_structure_2<Vb, Fb>		Tds;
-typedef CGAL::Triangulation_2<K, Tds>						T2;
-typedef CGAL::Triangulation_hierarchy_2<T2>					Triangulation;
+typedef CGAL::Exact_intersections_tag								Itag;
+typedef CGAL::Constrained_triangulation_2<K, CGAL::Default, Itag>	CT;
+typedef CGAL::Constrained_triangulation_plus_2<CT>					CTplus;
 
 //typedef CGAL::Triangulation_2<K> Triangulation;
-typedef Triangulation::Finite_faces_iterator FiniteFaceIter;
-typedef Triangulation::Finite_edges_iterator FiniteEdgeIter;
-typedef Triangulation::Finite_vertices_iterator FiniteVertexIter;
+typedef CTplus::Finite_faces_iterator FiniteFaceIter;
+typedef CTplus::Finite_edges_iterator FiniteEdgeIter;
+typedef CTplus::Finite_vertices_iterator FiniteVertexIter;
 
-typedef Triangulation::Face_handle TriFaceHandle;
-typedef Triangulation::Vertex_handle TriVertexHandle;
+typedef CTplus::Face_handle TriFaceHandle;
+typedef CTplus::Vertex_handle TriVertexHandle;
 
-typedef Triangulation::Face TriFace;
-typedef Triangulation::Edge TriEdge;
-typedef Triangulation::Vertex TriVertex;
-typedef Triangulation::Point TriPoint;
+typedef CTplus::Face TriFace;
+typedef CTplus::Edge TriEdge;
+typedef CTplus::Vertex TriVertex;
+typedef CTplus::Point TriPoint;
 
 typedef CGAL::Creator_uniform_2<double, TriPoint> Creator;
 
@@ -60,17 +56,7 @@ namespace boost {
 	};
 }
 
-typedef long long EdgeWeight;
-
-struct VertexProperties
-{
-	CGALPoint pt;
-};
-
-struct EdgeProperties
-{
-	EdgeWeight weight;
-};
+typedef double EdgeWeight;
 
 bool operator==(CGALPoint const& p1, CGALPoint const& p2)
 {
@@ -88,18 +74,19 @@ namespace boost {
 	};
 }
 
+// Custom vertex
+typedef size_t VertexIndex;
+typedef std::vector<CGALPoint*> VertexVector;
+
+// A hashable wrapper for an Edge
 struct SimpleEdge {
-	CGALPoint u;
-	CGALPoint v;
-	int u_idx;
-	int v_idx;
+	VertexIndex u;
+	VertexIndex v;
 	EdgeWeight weight;
 
-	SimpleEdge(CGALPoint aU, CGALPoint aV, int aU_idx, int aV_idx, int aWeight) {
-		u = aU;
-		v = aV;
-		u_idx = aU_idx;
-		v_idx = aV_idx;
+	SimpleEdge(VertexIndex aU_idx, VertexIndex aV_idx, int aWeight) {
+		u = aU_idx;
+		v = aV_idx;
 		weight = aWeight;
 	}
 };
@@ -113,33 +100,54 @@ namespace boost {
 	template <> struct hash < SimpleEdge > {
 		size_t operator()(SimpleEdge const& e) const {
 			std::size_t seed = 31;
-			boost::hash<CGALPoint> point_hasher;
+			boost::hash<VertexIndex> index_hasher;
 
 			// Add hash so edge endpoints {(x1, y1) (x2, y2)}
 			// have the same hash as {(x2, y2) (x1, y1)}
-			return point_hasher(e.u) + point_hasher(e.v);
+			return index_hasher(e.u) + index_hasher(e.v);
 		}
 	};
 }
 
-typedef boost::adjacency_list <
-	boost::hash_setS, // OutEdgeList
-	boost::vecS, // VertexList
-	boost::undirectedS, // Undirected edges
-	VertexProperties, // Vertex obj representation
-	EdgeProperties, // Edge obj representation
-	boost::no_property, // Graph obj representation
-	boost::listS > // EdgeList (there is limited documentation on how to change this)
-	BoostGraph;
+// Custom edge
+typedef std::vector<SimpleEdge*> EdgeVector;
 
-// Boost typdefs
-typedef boost::graph_traits<BoostGraph>::vertex_descriptor Vertex;
-typedef boost::graph_traits<BoostGraph>::edge_descriptor Edge;
+void deleteVerticesVector(VertexVector* vv) {
+	for (VertexVector::iterator it = vv->begin(); it != vv->end(); ++it) {
+		delete (*it);
+	}
+	delete vv;
+}
 
-typedef boost::graph_traits<BoostGraph>::vertex_iterator VertexIter;
-typedef boost::graph_traits<BoostGraph>::edge_iterator EdgeIter;
+void deleteEdgeVector(EdgeVector* ev) {
+	for (EdgeVector::iterator it = ev->begin(); it != ev->end(); ++it) {
+		delete (*it);
+	}
+	delete ev;
+}
 
 // Random gen
 boost::minstd_rand gen;
+
+inline bool SegmentIntersect(CGALPoint existingU, CGALPoint existingV, CGALPoint inputU, CGALPoint inputY) {
+	CGALSegment seg1(existingU, existingV);
+	CGALSegment seg2(inputU, inputY);
+
+	CGAL::cpp11::result_of<CGALIntersect(CGALSegment, CGALSegment)>::type result = intersection(seg1, seg2);
+	if (result) {
+		if (const CGALSegment* s = boost::get<CGALSegment>(&*result)) {
+			//std::cout << *s << std::endl;
+			return true;
+		}
+		else if (const CGALPoint* p = boost::get<CGALPoint >(&*result)) {
+			//std::cout << " i " << *p;
+			// Ignore intersection at segment endpoints
+			if (*p != inputU && *p != inputY) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
 
 #endif  // GRAPH_DEFS_H_
