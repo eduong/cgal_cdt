@@ -14,7 +14,7 @@
 #include <fstream>
 #include <string>
 
-#define SHOW_DEBUG true
+#define SHOW_DEBUG false
 
 const int vertexIdx = 0; // Arbitrary index id
 
@@ -171,7 +171,7 @@ void computeNonLocallyDelaunay(
 			TriVertexHandle v1f0 = f0->vertex(f0->ccw(eIndex));
 
 			//std::cout << eIndex << std::endl;
-			std::cout << "(" << *v0f0 << ") (" << *v1f0 << ")" << "(" << *opp0 << ")" << std::endl;
+			std::cout << (*handlesToIndex)[v0f0] << " " << (*handlesToIndex)[v1f0] << " (" << *v0f0 << ") (" << *v1f0 << ") " << (*handlesToIndex)[opp0] << " (" << *opp0 << ")" << std::endl;
 		}
 
 		if (opp0 != infiniteVertex && f1 != infiniteFace) {
@@ -189,29 +189,6 @@ void computeNonLocallyDelaunay(
 				}
 			}
 		}
-
-		//// Vertex of edge e
-		//TriVertexHandle e0 = f0->vertex(f0->cw(eIndex));
-		//TriVertexHandle e1 = f0->vertex(f0->ccw(eIndex));
-		//
-		//// Vertex opposite of edge e in f1
-		//TriVertexHandle opp1 = OppositeOfEdge(e0, e1, f1);
-		//
-		//if (opp1 != infiniteVertex && f1 != infiniteFace) {
-		//	TriVertexHandle pH = f1->vertex(0);
-		//	TriVertexHandle qH = f1->vertex(1);
-		//	TriVertexHandle rH = f1->vertex(2);
-
-		//	if (pH != infiniteVertex && qH != infiniteVertex && rH != infiniteVertex) {
-		//		CGALPoint p = pH->point();
-		//		CGALPoint q = qH->point();
-		//		CGALPoint r = rH->point();
-		//		CGALPoint t = opp1->point();
-		//		if (!IsLocallyDelaunay(&p, &q, &r, &t)) {
-		//			S->emplace(e);
-		//		}
-		//	}
-		//}
 	}
 
 	(*S_Edges) = new EdgeVector();
@@ -281,7 +258,6 @@ bool isSubgraph(VertexVector* vertices, EdgeVector* a, EdgeVector* b) {
 
 EdgeVector* convertCdtToGraph(VertexVector* vertices, CDT* cdt) {
 	EdgeVector* edgeVec = new EdgeVector();
-	// edgeVec->reserve(cdt->number_of_faces() * 3); // Upper bound on number of edges (typically too much)
 
 	// Map CGALPoint -> VertexIndex
 	boost::unordered_map<CGALPoint, VertexIndex> vertexIndex;
@@ -311,11 +287,6 @@ bool isCdtSubgraph(VertexVector* vertices, EdgeVector* edgesF, EdgeVector* edges
 	EdgeVector* ev_cdtS = convertCdtToGraph(vertices, cdtS);
 	bool res = isSubgraph(vertices, edgesF, ev_cdtS);
 
-	if (!res) {
-		printGraph("Input", vertices, edgesF, true);
-		std::cout << "foo";
-	}
-
 	delete ev_cdtS;
 	delete cdtS;
 	delete handlesToIndex;
@@ -326,70 +297,50 @@ bool isCdtSubgraph(VertexVector* vertices, EdgeVector* edgesF, EdgeVector* edges
 int main(int argc, char* argv[]) {
 	const char* vertFile = (argc > 2) ? argv[1] : NULL;
 	const char* edgeFile = (argc > 2) ? argv[2] : NULL;
-	for (;;) {
-		VertexVector* vertices = NULL;
-		EdgeVector* edges = NULL;
+	VertexVector* vertices = NULL;
+	EdgeVector* edges = NULL;
 
-		if (vertFile == NULL || edgeFile == NULL) {
-			// Random graph
-			createRandomPlaneForest(10, 10, 10, &vertices, &edges);
-		}
-		else {
-			// Load graph from file
-			parseGraph(vertFile, edgeFile, &vertices, &edges);
-		}
-
-		/*vertices = new VertexVector();
-		vertices->push_back(new CGALPoint(1.44669, 4.81919));
-		vertices->push_back(new CGALPoint(2.91838, 17.0605));
-		vertices->push_back(new CGALPoint(11.9717, 0.196299));
-		vertices->push_back(new CGALPoint(0.264731, 7.71428));
-		vertices->push_back(new CGALPoint(18.7201, 14.895));
-		vertices->push_back(new CGALPoint(0.102537, 8.57164));
-		vertices->push_back(new CGALPoint(1.12243, 5.39687));
-		vertices->push_back(new CGALPoint(9.96529, 6.02341e-005));
-		vertices->push_back(new CGALPoint(19.8294, 11.8395));
-		vertices->push_back(new CGALPoint(6.86348, 19.4954));
-
-		edges = new EdgeVector();
-		edges->push_back(new SimpleEdge(0, 8, 0));
-		edges->push_back(new SimpleEdge(6, 9, 0));
-		edges->push_back(new SimpleEdge(8, 1, 0));*/
-
-		if (SHOW_DEBUG) {
-			printGraph("Input", vertices, edges, true);
-		}
-
-		// Compute CT(V, E)
-		EdgeVector* NewEdges;
-		EdgeVector* cdtS;
-		computeNonLocallyDelaunay(vertices, edges, &NewEdges, &cdtS);
-		//EdgeVector* S = intersectInputSetWithConstraintSet(NewEdges, cdtS);
-		//std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
-		std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << cdtS->size() << " Ratio: " << (double)((double)cdtS->size() / (double)NewEdges->size()) << std::endl;
-
-		if (SHOW_DEBUG) {
-			printGraph("computeNonLocallyDelaunay", vertices, cdtS, false);
-			//printGraph("S", vertices, S, false);
-		}
-
-		// Validatation:
-		// S ⊆ E
-		//if (!isSubgraph(vertices, S, NewEdges)) {
-			//std::cout << "Error: isSubgraph is false" << std::endl;
-		//}
-
-		// F ⊆ CDT(V, S)
-		//if (!isCdtSubgraph(vertices, NewEdges, S)) {
-		if (!isCdtSubgraph(vertices, NewEdges, cdtS)) {
-			std::cout << "Error: isCdtSubgraph is false" << std::endl;
-		}
-
-		//deleteEdgeVector(S);
-		deleteEdgeVector(cdtS);
-		deleteEdgeVector(NewEdges);
-		deleteEdgeVector(edges);
-		deleteVerticesVector(vertices);
+	if (vertFile == NULL || edgeFile == NULL) {
+		// Random graph
+		createRandomPlaneForest(10, 10, 10, &vertices, &edges);
 	}
+	else {
+		// Load graph from file
+		parseGraph(vertFile, edgeFile, &vertices, &edges);
+	}
+
+	if (SHOW_DEBUG) {
+		printGraph("Input", vertices, edges, true);
+	}
+
+	// Compute CT(V, E)
+	EdgeVector* NewEdges;
+	EdgeVector* cdtS;
+	computeNonLocallyDelaunay(vertices, edges, &NewEdges, &cdtS);
+	EdgeVector* S = intersectInputSetWithConstraintSet(NewEdges, cdtS);
+	std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
+	//std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << cdtS->size() << " Ratio: " << (double)((double)cdtS->size() / (double)NewEdges->size()) << std::endl;
+
+	if (SHOW_DEBUG) {
+		printGraph("computeNonLocallyDelaunay", vertices, cdtS, false);
+		printGraph("S", vertices, S, false);
+	}
+
+	// Validatation:
+	// S ⊆ E
+	if (!isSubgraph(vertices, S, NewEdges)) {
+		std::cout << "Error: isSubgraph is false" << std::endl;
+	}
+
+	// F ⊆ CDT(V, S)
+	if (!isCdtSubgraph(vertices, NewEdges, S)) {
+		std::cout << "Error: isCdtSubgraph is false" << std::endl;
+	}
+
+	deleteEdgeVector(S);
+	deleteEdgeVector(cdtS);
+	deleteEdgeVector(NewEdges);
+	deleteEdgeVector(edges);
+	deleteVerticesVector(vertices);
 	return 0;
 }

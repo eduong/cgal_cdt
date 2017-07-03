@@ -42,8 +42,8 @@ void createRandomPlaneForest(int numVertices, int radius, int upToNumEdges, Vert
 	(*vertices) = new VertexVector();
 	(*edges) = new EdgeVector();
 
-	//CGAL::Random_points_in_disc_2<CGALPoint, Creator> randPts(radius);
-	CGAL::Random_points_on_circle_2<CGALPoint, Creator> randPts(radius);
+	CGAL::Random_points_in_disc_2<CGALPoint, Creator> randPts(radius);
+	//CGAL::Random_points_on_circle_2<CGALPoint, Creator> randPts(radius);
 
 	// Generate vertices with random coordinated within bounds
 	for (int i = 0; i < numVertices; i++) {
