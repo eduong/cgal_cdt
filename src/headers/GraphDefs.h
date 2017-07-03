@@ -2,7 +2,10 @@
 #define GRAPH_DEFS_H_
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Constrained_Delaunay_triangulation_2.h>
 #include <CGAL/Constrained_triangulation_plus_2.h>
+#include <CGAL/Triangulation_2.h>
+#include <CGAL/Triangulation_hierarchy_2.h>
 #include <CGAL/Segment_2.h>
 #include <CGAL/point_generators_2.h>
 #include <CGAL/algorithm.h>
@@ -21,22 +24,26 @@ typedef K::Segment_2 CGALSegment;
 typedef K::Intersect_2 CGALIntersect;
 typedef K::Circle_2 CGALCircle;
 
-typedef CGAL::Exact_intersections_tag								Itag;
-typedef CGAL::Constrained_triangulation_2<K, CGAL::Default, Itag>	CT;
-typedef CGAL::Constrained_triangulation_plus_2<CT>					CTplus;
+typedef CGAL::Triangulation_vertex_base_2<K>				Vbb;
+typedef CGAL::Triangulation_hierarchy_vertex_base_2<Vbb>	Vb;
+typedef CGAL::Constrained_triangulation_face_base_2<K>		Fb;
+typedef CGAL::Triangulation_data_structure_2<Vb, Fb>		TDS;
+typedef CGAL::No_intersection_tag							Itag;
+typedef CGAL::Constrained_Delaunay_triangulation_2<K, TDS, Itag> CDT;
+typedef CGAL::Triangulation_hierarchy_2<CDT> Triangulation;
 
 //typedef CGAL::Triangulation_2<K> Triangulation;
-typedef CTplus::Finite_faces_iterator FiniteFaceIter;
-typedef CTplus::Finite_edges_iterator FiniteEdgeIter;
-typedef CTplus::Finite_vertices_iterator FiniteVertexIter;
+typedef Triangulation::Finite_faces_iterator FiniteFaceIter;
+typedef Triangulation::Finite_edges_iterator FiniteEdgeIter;
+typedef Triangulation::Finite_vertices_iterator FiniteVertexIter;
 
-typedef CTplus::Face_handle TriFaceHandle;
-typedef CTplus::Vertex_handle TriVertexHandle;
+typedef Triangulation::Face_handle TriFaceHandle;
+typedef Triangulation::Vertex_handle TriVertexHandle;
 
-typedef CTplus::Face TriFace;
-typedef CTplus::Edge TriEdge;
-typedef CTplus::Vertex TriVertex;
-typedef CTplus::Point TriPoint;
+typedef Triangulation::Face TriFace;
+typedef Triangulation::Edge TriEdge;
+typedef Triangulation::Vertex TriVertex;
+typedef Triangulation::Point TriPoint;
 
 typedef CGAL::Creator_uniform_2<double, TriPoint> Creator;
 
