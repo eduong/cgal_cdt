@@ -42,6 +42,37 @@ void printGraph(const char* title, VertexVector* vertices, EdgeVector* edges, bo
 	std::cout << std::endl;
 }
 
+void printGDFGraph(const char* fileName, VertexVector* vertices, EdgeVector* edges) {
+	std::ofstream myfile;
+	myfile.open(fileName, std::ios::out | std::ios::in);
+
+	myfile << "nodedef> name VARCHAR,label VARCHAR,width DOUBLE,height DOUBLE,x DOUBLE,y DOUBLE,color VARCHAR" << std::endl;
+
+	// Iterate through the vertices and print them out
+	boost::unordered_map<CGALPoint*, VertexIndex> vertexHandles;
+	for (int i = 0; i < vertices->size(); i++) {
+		CGALPoint* v = (*vertices)[i];
+		myfile << i << ",,10.0,10.0," << (*v).x() << "," << (*v).y() << ",'153,153,153'" << std::endl;
+		vertexHandles.emplace(v, i);
+	}
+
+	myfile << "edgedef> node1,node2,weight DOUBLE,directed BOOLEAN,color VARCHAR" << std::endl;
+
+	// Iterate through the edges and print them out
+	for (int i = 0; i < edges->size(); i++) {
+		SimpleEdge* e = (*edges)[i];
+		CGALPoint* src = (*vertices)[e->u];
+		CGALPoint* tar = (*vertices)[e->v];
+		VertexIndex srcInd = vertexHandles[src];
+		VertexIndex tarInd = vertexHandles[tar];
+		//EdgeWeight weight = sqrt(CGAL::squared_distance(*src, *tar));
+		EdgeWeight weight = 1.0;
+		myfile << srcInd << "," << tarInd << "," << weight << ",false,'128,128,128'" << std::endl;
+	}
+
+	myfile.close();
+}
+
 TriVertexHandle OppositeOfEdge(TriVertexHandle ev0, TriVertexHandle ev1, TriFaceHandle f) {
 	TriVertexHandle v0 = f->vertex(vertexIdx);
 	if (v0 != ev0 && v0 != ev1) {
@@ -139,17 +170,35 @@ void computeNonLocallyDelaunay(
 	EdgeVector** NewEdges,
 	EdgeVector** S_Edges) {
 
+	boost::chrono::high_resolution_clock::time_point start;
+	boost::chrono::high_resolution_clock::time_point end;
+	boost::chrono::milliseconds duration(0);
+	boost::chrono::milliseconds total(0);
+
+	// Compute CDT(F)
+	start = boost::chrono::high_resolution_clock::now();
 	boost::unordered_map<TriVertexHandle, VertexIndex>* handlesToIndex;
 	CDT* cdt = computeCdt(vertices, edges, &handlesToIndex);
-	(*NewEdges) = newConstraintSetFromCt(cdt, vertices);
+	end = boost::chrono::high_resolution_clock::now();
+	duration = (boost::chrono::duration_cast<boost::chrono::milliseconds>(end - start));
+	total += duration;
+	printDuration("CDT(F)", duration);
 
+	// Replace F with NewF
+	start = boost::chrono::high_resolution_clock::now();
+	(*NewEdges) = newConstraintSetFromCt(cdt, vertices);
+	end = boost::chrono::high_resolution_clock::now();
+	duration = (boost::chrono::duration_cast<boost::chrono::milliseconds>(end - start));
+	total += duration;
+	printDuration("F -> NewF", duration);
+
+	// Compute Non-Locally Delaunay edges
+	start = boost::chrono::high_resolution_clock::now();
 	boost::unordered_set<TriEdge>* S = new boost::unordered_set<TriEdge>();
 
 	TriVertexHandle infiniteVertex = cdt->infinite_vertex();
 	TriFaceHandle infiniteFace = cdt->infinite_face();
 	int edgeCount = 0;
-
-	boost::chrono::high_resolution_clock::time_point startTotal = boost::chrono::high_resolution_clock::now();
 
 	for (FiniteEdgeIter iter = cdt->finite_edges_begin(); iter != cdt->finite_edges_end(); ++iter) {
 		edgeCount++;
@@ -205,9 +254,12 @@ void computeNonLocallyDelaunay(
 		(*S_Edges)->push_back(new SimpleEdge(u, v, 0));
 	}
 
-	boost::chrono::high_resolution_clock::time_point endTotal = boost::chrono::high_resolution_clock::now();
-	boost::chrono::milliseconds total = (boost::chrono::duration_cast<boost::chrono::milliseconds>(endTotal - startTotal));
-	printDuration("computeCDT duration", total);
+	end = boost::chrono::high_resolution_clock::now();
+	duration = (boost::chrono::duration_cast<boost::chrono::milliseconds>(end - start));
+	total += duration;
+	printDuration("computeNonLocallyDelaunay duration", duration);
+
+	printDuration("Total", total);
 
 	delete S;
 	delete cdt;
@@ -302,7 +354,8 @@ int main(int argc, char* argv[]) {
 
 	if (vertFile == NULL || edgeFile == NULL) {
 		// Random graph
-		createRandomPlaneForest(10, 10, 10, &vertices, &edges);
+		createRandomPlaneForest(1000, 1000, 100, &vertices, &edges);
+		//createRandomNearTriangulation(1000, 1000, &vertices, &edges);
 	}
 	else {
 		// Load graph from file
@@ -321,6 +374,8 @@ int main(int argc, char* argv[]) {
 	std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
 	//std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << cdtS->size() << " Ratio: " << (double)((double)cdtS->size() / (double)NewEdges->size()) << std::endl;
 
+	printGDFGraph("D:\\g\\results\\graph examples\\hi_dt_S.gdf", vertices, S);
+
 	if (SHOW_DEBUG) {
 		printGraph("computeNonLocallyDelaunay", vertices, cdtS, false);
 		printGraph("S", vertices, S, false);
@@ -333,9 +388,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	// F ⊆ CDT(V, S)
-	if (!isCdtSubgraph(vertices, NewEdges, S)) {
-		std::cout << "Error: isCdtSubgraph is false" << std::endl;
-	}
+	//if (!isCdtSubgraph(vertices, NewEdges, S)) {
+	//	std::cout << "Error: isCdtSubgraph is false" << std::endl;
+	//}
 
 	deleteEdgeVector(S);
 	deleteEdgeVector(cdtS);

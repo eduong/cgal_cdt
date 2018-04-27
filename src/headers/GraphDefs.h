@@ -32,6 +32,8 @@ typedef CGAL::No_intersection_tag							Itag;
 typedef CGAL::Constrained_Delaunay_triangulation_2<K, TDS, Itag> CDT;
 typedef CGAL::Triangulation_hierarchy_2<CDT> Triangulation;
 
+typedef CDT::Vertex_handle Vertex_handle;
+
 //typedef CGAL::Triangulation_2<K> Triangulation;
 typedef Triangulation::Finite_faces_iterator FiniteFaceIter;
 typedef Triangulation::Finite_edges_iterator FiniteEdgeIter;

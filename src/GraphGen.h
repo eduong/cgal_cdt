@@ -38,7 +38,7 @@ bool doesIntersect(VertexVector* vertices, EdgeVector* edges, VertexIndex u, Ver
 	return false;
 }
 
-void createRandomPlaneForest(int numVertices, int radius, int upToNumEdges, VertexVector** vertices, EdgeVector** edges) {
+void createRandomNearTriangulation(int numVertices, int radius, VertexVector** vertices, EdgeVector** edges) {
 	(*vertices) = new VertexVector();
 	(*edges) = new EdgeVector();
 
@@ -48,9 +48,70 @@ void createRandomPlaneForest(int numVertices, int radius, int upToNumEdges, Vert
 	// Generate vertices with random coordinated within bounds
 	for (int i = 0; i < numVertices; i++) {
 		CGALPoint* pt = new CGALPoint((*randPts++));
-		CGALPoint* ptTranslated = new CGALPoint(pt->x() + radius, pt->y() + radius);
-		(*vertices)->push_back(ptTranslated);
-		delete pt;
+		(*vertices)->push_back(pt);
+	}
+
+	CDT* cdt = new CDT();
+	boost::unordered_map<VertexIndex, Vertex_handle> vertexHandles;
+	for (int i = 0; i < (*vertices)->size(); i++) {
+		CGALPoint* pt = (**vertices)[i];
+		Vertex_handle vHandle = cdt->insert(*pt);
+		vertexHandles.emplace(i, vHandle);
+	}
+
+	// Map CGALPoint -> VertexIndex
+	boost::unordered_map<CGALPoint, VertexIndex> vertexIndex;
+	for (int i = 0; i < (*vertices)->size(); i++) {
+		vertexIndex[*(**vertices)[i]] = i;
+	}
+
+	// Disjoint set for forest property
+	std::vector<int> rank(numVertices);
+	std::vector<int> parent(numVertices);
+	boost::disjoint_sets<int*, int*, boost::find_with_full_path_compression> ds(&rank[0], &parent[0]);
+	for (int i = 0; i < rank.size(); i++) {
+		rank[i] = i;
+		parent[i] = i;
+	}
+
+	// Define edge random gen
+	boost::uniform_int<> randomRange(0, 9);
+	boost::variate_generator<boost::minstd_rand, boost::uniform_int<>> edgeDice(gen, randomRange);
+	edgeDice.engine().seed(static_cast<unsigned int>(std::time(0)));
+
+	// Add edges to graph
+	for (CDT::Edge_iterator eit = cdt->edges_begin(); eit != cdt->edges_end(); ++eit) {
+		CDT::Edge cgal_e = *eit;
+		CGALSegment segement = cdt->segment(cgal_e);
+		CGALPoint cgal_u = segement.point(0);
+		CGALPoint cgal_v = segement.point(1);
+		VertexIndex u = vertexIndex[cgal_u];
+		VertexIndex v = vertexIndex[cgal_v];
+		int rand = edgeDice();
+
+		unsigned long long setU = ds.find_set(u);
+		unsigned long long setV = ds.find_set(v);
+
+		if (ds.find_set(u) != ds.find_set(v)
+			&& rand == 9) {
+			ds.link(u, v);
+			SimpleEdge* edge = new SimpleEdge(u, v, 0);
+			(*edges)->push_back(edge);
+		}
+	}
+}
+
+void createRandomPlaneForest(int numVertices, int radius, int numEdges, VertexVector** vertices, EdgeVector** edges) {
+	(*vertices) = new VertexVector();
+	(*edges) = new EdgeVector();
+
+	//CGAL::Random_points_in_disc_2<CGALPoint, Creator> randPts(radius);
+	CGAL::Random_points_on_circle_2<CGALPoint, Creator> randPts(radius);
+
+	// Generate vertices with random coordinated within bounds
+	for (int i = 0; i < numVertices; i++) {
+		CGALPoint* pt = new CGALPoint((*randPts++));
+		(*vertices)->push_back(pt);
 	}
 
 	// Define edge random gen
@@ -67,22 +128,22 @@ void createRandomPlaneForest(int numVertices, int radius, int upToNumEdges, Vert
 	}
 
 	// Select random vertices u, v for edgeRolls number of times
-	// An edge connects u, v:
-	//		1. u != v
-	//		3. adding edge(u, v) does not create a cycle
-	//		4. edge(u, v) does not intersect any existing edge
-	for (int i = 0; i < upToNumEdges; i++) {
+	int edgeCount = 0;
+	while (edgeCount < numEdges) {
 		VertexIndex u = vertexDice();
 		VertexIndex v = vertexDice();
+		// An edge connects u, v:
+		//		1. u != v
+		//		3. adding edge(u, v) does not create a cycle
+		//		4. edge(u, v) does not intersect any existing edge
 		if (u != v
 			&& ds.find_set(u) != ds.find_set(v)
 			&& !doesIntersect((*vertices), (*edges), u, v)) {
 
 			// Add edge(u, v)
-			//std::pair<Edge, bool> result = add_edge(u, v, *g);
-			//assert(result.second);
 			(*edges)->push_back(new SimpleEdge(u, v, 0));
 			ds.link(u, v);
+			edgeCount++;
 			//std::cout << " - added";
 		}
 	}
