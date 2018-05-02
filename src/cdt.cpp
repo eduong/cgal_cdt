@@ -87,7 +87,6 @@ TriVertexHandle OppositeOfEdge(TriVertexHandle ev0, TriVertexHandle ev1, TriFace
 	TriVertexHandle v2 = f->vertex(f->ccw(vertexIdx));
 	if (v2 != ev0 && v2 != ev1) {
 		return v2;
-
 	}
 
 	assert(false); // Unreachable
@@ -299,8 +298,9 @@ bool isSubgraph(VertexVector* vertices, EdgeVector* a, EdgeVector* b) {
 		if (!containsEdge(bEdgeSet, edge)) {
 			CGALPoint* u = (*vertices)[edge->u];
 			CGALPoint* v = (*vertices)[edge->v];
-			EdgeWeight weight = CGAL::squared_distance(*u, *v);
-			std::cout << "b contains edge not in a: " << weight << " (" << *u << ") (" << *v << ")" << std::endl;
+			//EdgeWeight weight = CGAL::squared_distance(*u, *v);
+			CGAL::Lazy_exact_nt<CGAL::Gmpq> exactWeight = CGAL::squared_distance(*u, *v);
+			std::cout << "b contains edge not in a: " << CGAL::to_double(exactWeight) << " (" << *u << ") (" << *v << ")" << std::endl;
 			return false;
 		}
 	}
@@ -354,7 +354,8 @@ int main(int argc, char* argv[]) {
 
 	if (vertFile == NULL || edgeFile == NULL) {
 		// Random graph
-		createRandomPlaneForest(1000, 1000, 100, &vertices, &edges);
+		createRandomPlaneForest(50, 1000, 25, &vertices, &edges);
+		//createRandomPlaneForest(1000, 1000, 100, &vertices, &edges);
 		//createRandomNearTriangulation(1000, 1000, &vertices, &edges);
 	}
 	else {
@@ -374,7 +375,8 @@ int main(int argc, char* argv[]) {
 	std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
 	//std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << cdtS->size() << " Ratio: " << (double)((double)cdtS->size() / (double)NewEdges->size()) << std::endl;
 
-	printGDFGraph("D:\\g\\results\\graph examples\\hi_dt_S.gdf", vertices, S);
+	printGDFGraph("D:\\g\\results\\graph examples\\smallDiscCDT_in.gdf", vertices, NewEdges);
+	printGDFGraph("D:\\g\\results\\graph examples\\smallDiscCDT_out.gdf", vertices, S);
 
 	if (SHOW_DEBUG) {
 		printGraph("computeNonLocallyDelaunay", vertices, cdtS, false);
@@ -388,9 +390,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	// F ⊆ CDT(V, S)
-	//if (!isCdtSubgraph(vertices, NewEdges, S)) {
-	//	std::cout << "Error: isCdtSubgraph is false" << std::endl;
-	//}
+	if (!isCdtSubgraph(vertices, NewEdges, S)) {
+		std::cout << "Error: isCdtSubgraph is false" << std::endl;
+	}
 
 	deleteEdgeVector(S);
 	deleteEdgeVector(cdtS);

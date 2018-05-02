@@ -1,7 +1,8 @@
 #ifndef GRAPH_DEFS_H_
 #define GRAPH_DEFS_H_
 
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+//#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Constrained_Delaunay_triangulation_2.h>
 #include <CGAL/Constrained_triangulation_plus_2.h>
 #include <CGAL/Triangulation_2.h>
@@ -9,6 +10,7 @@
 #include <CGAL/Segment_2.h>
 #include <CGAL/point_generators_2.h>
 #include <CGAL/algorithm.h>
+#include <CGAL/Lazy_exact_nt.h>
 #include <cassert>
 
 #include <boost/graph/adjacency_list.hpp>
@@ -18,7 +20,8 @@
 #include <boost/random/linear_congruential.hpp>
 
 // CGAL typedefs (2 space)
-typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
+//typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
+typedef CGAL::Exact_predicates_exact_constructions_kernel K;
 typedef K::Point_2 CGALPoint;
 typedef K::Segment_2 CGALSegment;
 typedef K::Intersect_2 CGALIntersect;
@@ -76,8 +79,12 @@ namespace boost {
 	template <> struct hash < CGALPoint > {
 		size_t operator()(CGALPoint const& p) const {
 			std::size_t seed = 31;
-			boost::hash_combine(seed, p.x());
-			boost::hash_combine(seed, p.y());
+			// Warning: Possibly area of precision loss. The hash is dependent on to_double returning the same
+			// values that we initialized our CGALPoint with
+			double x = CGAL::to_double(p.x());
+			double y = CGAL::to_double(p.y());
+			boost::hash_combine(seed, x);
+			boost::hash_combine(seed, y);
 			return seed;
 		}
 	};
