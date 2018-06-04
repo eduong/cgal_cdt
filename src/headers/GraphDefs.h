@@ -68,7 +68,8 @@ namespace boost {
 	};
 }
 
-typedef double EdgeWeight;
+// typedef double EdgeWeight;
+typedef CGAL::Lazy_exact_nt<CGAL::Gmpq> EdgeWeight;
 
 bool operator==(CGALPoint const& p1, CGALPoint const& p2)
 {
@@ -99,11 +100,13 @@ struct SimpleEdge {
 	VertexIndex u;
 	VertexIndex v;
 	EdgeWeight weight;
+	int sortedOrder;
 
-	SimpleEdge(VertexIndex aU_idx, VertexIndex aV_idx, int aWeight) {
+	SimpleEdge(VertexIndex aU_idx, VertexIndex aV_idx, EdgeWeight aWeight, int aSortedOrder = 0) {
 		u = aU_idx;
 		v = aV_idx;
 		weight = aWeight;
+		sortedOrder = aSortedOrder;
 	}
 };
 

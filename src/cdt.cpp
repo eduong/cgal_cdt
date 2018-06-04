@@ -52,7 +52,7 @@ void printGDFGraph(const char* fileName, VertexVector* vertices, EdgeVector* edg
 	boost::unordered_map<CGALPoint*, VertexIndex> vertexHandles;
 	for (int i = 0; i < vertices->size(); i++) {
 		CGALPoint* v = (*vertices)[i];
-		myfile << i << ",,10.0,10.0," << (*v).x() << "," << (*v).y() << ",'153,153,153'" << std::endl;
+		myfile << i << "," << i << ",10.0,10.0," << (*v).x() << "," << (*v).y() << ",'153,153,153'" << std::endl;
 		vertexHandles.emplace(v, i);
 	}
 
@@ -65,7 +65,7 @@ void printGDFGraph(const char* fileName, VertexVector* vertices, EdgeVector* edg
 		CGALPoint* tar = (*vertices)[e->v];
 		VertexIndex srcInd = vertexHandles[src];
 		VertexIndex tarInd = vertexHandles[tar];
-		//EdgeWeight weight = sqrt(CGAL::squared_distance(*src, *tar));
+		//EdgeWeight weight = CGAL::squared_distance(*src, *tar);
 		EdgeWeight weight = 1.0;
 		myfile << srcInd << "," << tarInd << "," << weight << ",false,'128,128,128'" << std::endl;
 	}
@@ -74,17 +74,17 @@ void printGDFGraph(const char* fileName, VertexVector* vertices, EdgeVector* edg
 }
 
 TriVertexHandle OppositeOfEdge(TriVertexHandle ev0, TriVertexHandle ev1, TriFaceHandle f) {
-	TriVertexHandle v0 = f->vertex(vertexIdx);
+	TriVertexHandle v0 = f->vertex(0);
 	if (v0 != ev0 && v0 != ev1) {
 		return v0;
 	}
 
-	TriVertexHandle v1 = f->vertex(f->cw(vertexIdx));
+	TriVertexHandle v1 = f->vertex(1);
 	if (v1 != ev0 && v1 != ev1) {
 		return v1;
 	}
 
-	TriVertexHandle v2 = f->vertex(f->ccw(vertexIdx));
+	TriVertexHandle v2 = f->vertex(2);
 	if (v2 != ev0 && v2 != ev1) {
 		return v2;
 	}
@@ -100,9 +100,13 @@ bool IsLocallyDelaunay(CGALPoint* p, CGALPoint* q, CGALPoint* r, CGALPoint* t) {
 	CGALCircle c(*p, *q, *r);
 	CGAL::Bounded_side side = c.bounded_side(*t);
 
+	// We consider ON_BOUNDARY because if a constraint edge is on the boundary and the DT flip of quadrilateral has the same total angle, i.e. both
+	// flips are DT, then we have to record the constraint so that the CDT picks the right flip in the subgraph check.
+	return side == CGAL::Bounded_side::ON_UNBOUNDED_SIDE;
+	
 	// v is outside or on the circumcircle of f
-	return side == CGAL::Bounded_side::ON_UNBOUNDED_SIDE
-		|| side == CGAL::Bounded_side::ON_BOUNDARY;
+	// return side == CGAL::Bounded_side::ON_UNBOUNDED_SIDE
+		//|| side == CGAL::Bounded_side::ON_BOUNDARY;
 }
 
 CDT* computeCdt(VertexVector* vertices, EdgeVector* edges, boost::unordered_map<TriVertexHandle, VertexIndex>** handlesToIndex) {
@@ -147,6 +151,15 @@ EdgeVector* newConstraintSetFromCt(CDT* cdt, VertexVector* originalVertices) {
 	// Add edges to graph
 	for (CDT::Edge_iterator eit = cdt->edges_begin(); eit != cdt->edges_end(); ++eit) {
 		CDT::Edge cgal_e = *eit;
+		CGALSegment segement = cdt->segment(cgal_e);
+		
+		/*CGALPoint cgal_u = segement.point(0);
+		double uxpos = CGAL::to_double(cgal_u.x());
+		double uypos = CGAL::to_double(cgal_u.y());
+
+		CGALPoint cgal_v = segement.point(1);
+		double vxpos = CGAL::to_double(cgal_v.x());
+		double vypos = CGAL::to_double(cgal_v.y());*/
 
 		if (cdt->is_constrained(cgal_e)) {
 			// Assumes point coord are unique
@@ -161,6 +174,31 @@ EdgeVector* newConstraintSetFromCt(CDT* cdt, VertexVector* originalVertices) {
 		}
 	}
 	return newEdgeVector;
+}
+
+EdgeVector* convertCdtToGraph(VertexVector* vertices, CDT* cdt) {
+	EdgeVector* edgeVec = new EdgeVector();
+
+	// Map CGALPoint -> VertexIndex
+	boost::unordered_map<CGALPoint, VertexIndex> vertexIndex;
+	for (int i = 0; i < vertices->size(); i++) {
+		vertexIndex[*(*vertices)[i]] = i;
+	}
+
+	// Add edges to graph
+	for (CDT::Edge_iterator eit = cdt->edges_begin(); eit != cdt->edges_end(); ++eit) {
+		CDT::Edge cgal_e = *eit;
+		CGALSegment segement = cdt->segment(cgal_e);
+		CGALPoint cgal_u = segement.point(0);
+		CGALPoint cgal_v = segement.point(1);
+		VertexIndex u = vertexIndex[cgal_u];
+		VertexIndex v = vertexIndex[cgal_v];
+
+		SimpleEdge* edge = new SimpleEdge(u, v, 0);
+		edgeVec->push_back(edge);
+	}
+
+	return edgeVec;
 }
 
 void computeNonLocallyDelaunay(
@@ -213,6 +251,12 @@ void computeNonLocallyDelaunay(
 		// Vertex opposite of edge e in f0
 		TriVertexHandle opp0 = f0->vertex(eIndex);
 
+		// Vertex of edge e
+		TriVertexHandle e0 = f0->vertex(f0->cw(eIndex));
+		TriVertexHandle e1 = f0->vertex(f0->ccw(eIndex));
+
+		TriVertexHandle opp1 = OppositeOfEdge(e0, e1, f1);
+
 		if (SHOW_DEBUG) {
 			// Vertex endpoint v0, v1 of edge e for f0 (doesn't seem to be possible to identify the same edge for f1 in a similar way)
 			TriVertexHandle v0f0 = f0->vertex(f0->cw(eIndex));
@@ -221,6 +265,8 @@ void computeNonLocallyDelaunay(
 			//std::cout << eIndex << std::endl;
 			std::cout << (*handlesToIndex)[v0f0] << " " << (*handlesToIndex)[v1f0] << " (" << *v0f0 << ") (" << *v1f0 << ") " << (*handlesToIndex)[opp0] << " (" << *opp0 << ")" << std::endl;
 		}
+
+		bool addToS = false;
 
 		if (opp0 != infiniteVertex && f1 != infiniteFace) {
 			TriVertexHandle pH = f1->vertex(0);
@@ -233,9 +279,29 @@ void computeNonLocallyDelaunay(
 				CGALPoint r = rH->point();
 				CGALPoint t = opp0->point();
 				if (!IsLocallyDelaunay(&p, &q, &r, &t)) {
-					S->emplace(e);
+					addToS = true;
 				}
 			}
+		}
+
+		if (opp1 != infiniteVertex && f0 != infiniteFace) {
+			TriVertexHandle pH = f0->vertex(0);
+			TriVertexHandle qH = f0->vertex(1);
+			TriVertexHandle rH = f0->vertex(2);
+
+			if (pH != infiniteVertex && qH != infiniteVertex && rH != infiniteVertex) {
+				CGALPoint p = pH->point();
+				CGALPoint q = qH->point();
+				CGALPoint r = rH->point();
+				CGALPoint t = opp1->point();
+				if (!IsLocallyDelaunay(&p, &q, &r, &t)) {
+					addToS = true;
+				}
+			}
+		}
+
+		if (addToS) {
+			S->emplace(e);
 		}
 	}
 
@@ -292,6 +358,8 @@ bool containsEdge(boost::unordered_set<SimpleEdge>* edgeSet, SimpleEdge* edge) {
 bool isSubgraph(VertexVector* vertices, EdgeVector* a, EdgeVector* b) {
 	boost::unordered_set<SimpleEdge>* bEdgeSet = createSimpleEdgeSet(b);
 
+	bool result = true;
+
 	// Iterate through the edges
 	for (int i = 0; i < a->size(); i++) {
 		SimpleEdge* edge = (*a)[i];
@@ -300,43 +368,22 @@ bool isSubgraph(VertexVector* vertices, EdgeVector* a, EdgeVector* b) {
 			CGALPoint* v = (*vertices)[edge->v];
 			//EdgeWeight weight = CGAL::squared_distance(*u, *v);
 			CGAL::Lazy_exact_nt<CGAL::Gmpq> exactWeight = CGAL::squared_distance(*u, *v);
-			std::cout << "b contains edge not in a: " << CGAL::to_double(exactWeight) << " (" << *u << ") (" << *v << ")" << std::endl;
-			return false;
+			std::cout << "b contains edge not in a: " << CGAL::to_double(exactWeight) << "(" << edge->u << "," << edge->v << ")" << " (" << *u << ") (" << *v << ")" << std::endl;
+			result = false;
 		}
 	}
 
-	return true;
-}
-
-EdgeVector* convertCdtToGraph(VertexVector* vertices, CDT* cdt) {
-	EdgeVector* edgeVec = new EdgeVector();
-
-	// Map CGALPoint -> VertexIndex
-	boost::unordered_map<CGALPoint, VertexIndex> vertexIndex;
-	for (int i = 0; i < vertices->size(); i++) {
-		vertexIndex[*(*vertices)[i]] = i;
-	}
-
-	// Add edges to graph
-	for (CDT::Edge_iterator eit = cdt->edges_begin(); eit != cdt->edges_end(); ++eit) {
-		CDT::Edge cgal_e = *eit;
-		CGALSegment segement = cdt->segment(cgal_e);
-		CGALPoint cgal_u = segement.point(0);
-		CGALPoint cgal_v = segement.point(1);
-		VertexIndex u = vertexIndex[cgal_u];
-		VertexIndex v = vertexIndex[cgal_v];
-
-		SimpleEdge* edge = new SimpleEdge(u, v, 0);
-		edgeVec->push_back(edge);
-	}
-
-	return edgeVec;
+	return result;
 }
 
 bool isCdtSubgraph(VertexVector* vertices, EdgeVector* edgesF, EdgeVector* edgesS) {
 	boost::unordered_map<TriVertexHandle, VertexIndex>* handlesToIndex;
 	CDT* cdtS = computeCdt(vertices, edgesS, &handlesToIndex); // CDT of mimimum edge constraint
 	EdgeVector* ev_cdtS = convertCdtToGraph(vertices, cdtS);
+
+	//sortByXY(ev_cdtS);
+	//printGDFGraph("D:\\g\\results\\graph examples\\CDT_exact_DC\\CdtS.gdf", vertices, ev_cdtS);
+
 	bool res = isSubgraph(vertices, edgesF, ev_cdtS);
 
 	delete ev_cdtS;
@@ -354,9 +401,9 @@ int main(int argc, char* argv[]) {
 
 	if (vertFile == NULL || edgeFile == NULL) {
 		// Random graph
-		createRandomPlaneForest(50, 1000, 25, &vertices, &edges);
-		//createRandomPlaneForest(1000, 1000, 100, &vertices, &edges);
-		//createRandomNearTriangulation(1000, 1000, &vertices, &edges);
+		//createRandomCirclePlaneForest(1000, 1000, 100, &vertices, &edges);
+		createRandomMediumLengthPlaneForest(1000, 1000, 100, &vertices, &edges);
+		//createRandomNearTriangulation(1000, 1000, 100, &vertices, &edges);
 	}
 	else {
 		// Load graph from file
@@ -367,16 +414,29 @@ int main(int argc, char* argv[]) {
 		printGraph("Input", vertices, edges, true);
 	}
 
+	/*vertices = new VertexVector();
+	vertices->push_back(new CGALPoint(0, 0));
+	vertices->push_back(new CGALPoint(1, 0));
+	vertices->push_back(new CGALPoint(2, 0));
+
+	edges = new EdgeVector();
+	edges->push_back(new SimpleEdge(0, 1, 0));
+	edges->push_back(new SimpleEdge(1, 2, 0));
+	edges->push_back(new SimpleEdge(2, 0, 0));*/
+
 	// Compute CT(V, E)
 	EdgeVector* NewEdges;
 	EdgeVector* cdtS;
 	computeNonLocallyDelaunay(vertices, edges, &NewEdges, &cdtS);
 	EdgeVector* S = intersectInputSetWithConstraintSet(NewEdges, cdtS);
-	std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
-	//std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << cdtS->size() << " Ratio: " << (double)((double)cdtS->size() / (double)NewEdges->size()) << std::endl;
+	//std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
+	std::cout << S->size() << std::endl;
+	std::cout << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
+	std::cout << std::endl;
 
-	printGDFGraph("D:\\g\\results\\graph examples\\smallDiscCDT_in.gdf", vertices, NewEdges);
-	printGDFGraph("D:\\g\\results\\graph examples\\smallDiscCDT_out.gdf", vertices, S);
+	//printGDFGraph("D:\\g\\results\\graph examples\\CDT_exact_Med\\Edges.gdf", vertices, edges);
+	//printGDFGraph("D:\\g\\results\\graph examples\\CDT_exact_Med\\NewEdges.gdf", vertices, NewEdges);
+	//printGDFGraph("D:\\g\\results\\graph examples\\CDT_exact_Med\\S.gdf", vertices, S);
 
 	if (SHOW_DEBUG) {
 		printGraph("computeNonLocallyDelaunay", vertices, cdtS, false);
@@ -399,5 +459,6 @@ int main(int argc, char* argv[]) {
 	deleteEdgeVector(NewEdges);
 	deleteEdgeVector(edges);
 	deleteVerticesVector(vertices);
+	
 	return 0;
 }
